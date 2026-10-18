@@ -781,7 +781,7 @@ if __name__ == "__main__":
         _c = MetaculusClient()
         for _t in ["fall-futureeval-2026", 33121, "minibench", "metaculus-cup-fall-2026", "bot-testing-area"]:
             try:
-                _qs = _a.run(_c.get_all_open_questions_from_tournament(_t))
+                _qs = _c.get_all_open_questions_from_tournament(_t)
                 print("DIAG", _t, len(_qs), [q.page_url for q in _qs[:3]])
             except Exception as _e:
                 print("DIAG", _t, "ERR", repr(_e)[:200])
