@@ -741,6 +741,21 @@ class MoneyBot(FallTemplateBot2026):
         )
         return await self._binary_prompt_to_forecast(question, prompt)
 
+    def _create_unified_explanation(self, question, research_prediction_collections, aggregated_prediction, final_cost, time_spent_in_minutes):
+        text = super()._create_unified_explanation(
+            question, research_prediction_collections, aggregated_prediction, final_cost, time_spent_in_minutes
+        )
+        models = ", ".join(m.model for m in self._ensemble()) or "default model"
+        note = (
+            f"
+
+---
+Method note: each forecast is an average over several independent LLM runs (models rotated among: {models}). "
+            f"Binary answers are combined as a trimmed mean of log-odds with extremization factor {EXTREMIZE}; "
+            "other question types use the median/standard aggregation. The published number is the aggregate, not any single run."
+        )
+        return text + note
+
     async def _aggregate_predictions(self, predictions, question):
         if isinstance(question, BinaryQuestion):
             return aggregate_binary([float(p) for p in predictions], EXTREMIZE)
