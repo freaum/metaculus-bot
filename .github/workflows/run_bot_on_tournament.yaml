@@ -52,4 +52,7 @@ jobs:
           ASKNEWS_CLIENT_ID: ${{ secrets.ASKNEWS_CLIENT_ID }}
           ASKNEWS_SECRET: ${{ secrets.ASKNEWS_SECRET }}
           FORECAST_MODELS: ${{ vars.FORECAST_MODELS }}
+          DEFAULT_MODEL: ${{ vars.DEFAULT_MODEL }}
+          AUX_MODEL: ${{ vars.AUX_MODEL }}
+          RESEARCH_MODEL: ${{ vars.RESEARCH_MODEL }}
           EXTREMIZE: ${{ vars.EXTREMIZE }}

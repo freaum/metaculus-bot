@@ -793,6 +793,13 @@ if __name__ == "__main__":
         folder_to_save_reports_to=None,
         skip_previously_forecasted_questions=True,
         extra_metadata_in_explanation=True,
+        llms={
+            "default": GeneralLlm(model=os.getenv("DEFAULT_MODEL") or "anthropic/claude-haiku-5-5", temperature=0.3, timeout=240, allowed_tries=2),
+            "summarizer": os.getenv("AUX_MODEL") or "anthropic/claude-haiku-5-5",
+            "researcher": os.getenv("RESEARCH_MODEL") or "anthropic/claude-haiku-5-5",
+            "parser": os.getenv("AUX_MODEL") or "anthropic/claude-haiku-5-5",
+        },
+        # llms (template example, kept for reference):
         # llms={
         #     "default": GeneralLlm(
         #         model="openrouter/openai/gpt-4o",
