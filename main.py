@@ -747,10 +747,8 @@ class MoneyBot(FallTemplateBot2026):
         )
         models = ", ".join(m.model for m in self._ensemble()) or "default model"
         note = (
-            f"
-
----
-Method note: each forecast is an average over several independent LLM runs (models rotated among: {models}). "
+            "\n\n---\n"
+            f"Method note: each forecast is an average over several independent LLM runs (models rotated among: {models}). "
             f"Binary answers are combined as a trimmed mean of log-odds with extremization factor {EXTREMIZE}; "
             "other question types use the median/standard aggregation. The published number is the aggregate, not any single run."
         )
