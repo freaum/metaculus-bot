@@ -1,6 +1,7 @@
 import argparse
 import asyncio
 import logging
+import os
 from datetime import datetime, timezone
 from typing import Literal
 
@@ -42,6 +43,9 @@ from forecasting_tools import (
 )
 
 dotenv.load_dotenv()
+from aggregation import aggregate_binary
+
+EXTREMIZE = float(os.getenv("EXTREMIZE") or 1.0)
 logger = logging.getLogger(__name__)
 
 
@@ -683,6 +687,66 @@ class FallTemplateBot2026(ForecastBot):
         )
 
 
+class MoneyBot(FallTemplateBot2026):
+    """Improved bot: multi-model ensemble, log-odds aggregation + moderate extremization,
+    outside-view binary prompt. Models come from env FORECAST_MODELS (comma list, LiteLLM
+    names, e.g. openrouter/anthropic/claude-sonnet-4.5) so they can be changed without code."""
+
+    _rr = 0
+
+    def _ensemble(self) -> list[GeneralLlm]:
+        if not hasattr(self, "_ens"):
+            names = [m.strip() for m in os.getenv("FORECAST_MODELS", "").split(",") if m.strip()]
+            self._ens = [GeneralLlm(model=n, temperature=0.3, timeout=240, allowed_tries=2) for n in names]
+        return self._ens
+
+    def get_llm(self, purpose="default", guarantee_type=None):
+        if purpose == "default" and guarantee_type == "llm" and self._ensemble():
+            ens = self._ensemble()
+            MoneyBot._rr += 1
+            return ens[MoneyBot._rr % len(ens)]
+        return super().get_llm(purpose, guarantee_type)
+
+    async def _run_forecast_on_binary(self, question, research):
+        prompt = clean_indents(
+            f"""
+            You are a calibrated superforecaster. Question:
+            {question.question_text}
+
+            Background:
+            {question.background_info}
+
+            Resolution criteria (not yet satisfied):
+            {question.resolution_criteria}
+
+            {question.fine_print}
+
+            Research:
+            {research}
+
+            Today is {datetime.now().strftime("%Y-%m-%d")}.
+
+            Write, briefly:
+            (a) Time until resolution.
+            (b) Outside view: base rate for this kind of event in the reference class.
+            (c) Status quo outcome and how likely it persists.
+            (d) Best scenario for Yes, best scenario for No.
+            (e) Market/expert signals in the research, if any.
+            (f) Inside-view adjustment from the base rate, with the key evidence.
+            Be well calibrated: avoid <3% or >97% unless the outcome is nearly certain by the rules.
+            {self._get_conditional_disclaimer_if_necessary(question)}
+
+            The last thing you write is: "Probability: ZZ%", 0-100
+            """
+        )
+        return await self._binary_prompt_to_forecast(question, prompt)
+
+    async def _aggregate_predictions(self, predictions, question):
+        if isinstance(question, BinaryQuestion):
+            return aggregate_binary([float(p) for p in predictions], EXTREMIZE)
+        return await super()._aggregate_predictions(predictions, question)
+
+
 if __name__ == "__main__":
     logging.basicConfig(
         level=logging.INFO,
@@ -707,11 +771,12 @@ if __name__ == "__main__":
     # Configure the bot. The `llms=` block below is commented out to use
     # whichever default models forecasting-tools picks based on your env vars;
     # uncomment and edit to pin specific models.
-    template_bot = FallTemplateBot2026(
+    template_bot = MoneyBot(
         research_reports_per_question=1,
-        predictions_per_research_report=5,
+        predictions_per_research_report=int(os.getenv("PREDICTIONS_PER_REPORT") or 6),
         use_research_summary_to_forecast=False,
         publish_reports_to_metaculus=publish_to_metaculus,
+        enable_summarize_research=False,
         folder_to_save_reports_to=None,
         skip_previously_forecasted_questions=True,
         extra_metadata_in_explanation=True,
@@ -742,17 +807,16 @@ if __name__ == "__main__":
     # summary printers below.
     client = MetaculusClient()
     if run_mode == "tournament":
-        seasonal_tournament_reports = asyncio.run(
-            template_bot.forecast_on_tournament(
+        async def _both():
+            a = await template_bot.forecast_on_tournament(
                 client.CURRENT_AI_COMPETITION_ID, return_exceptions=True
             )
-        )
-        minibench_reports = asyncio.run(
-            template_bot.forecast_on_tournament(
+            b = await template_bot.forecast_on_tournament(
                 client.CURRENT_MINIBENCH_ID, return_exceptions=True
             )
-        )
-        forecast_reports = seasonal_tournament_reports + minibench_reports
+            return a + b
+
+        forecast_reports = asyncio.run(_both())  # single event loop (semaphore is class-level)
     elif run_mode == "metaculus_cup":
         # The Metaculus Cup may be uninitialized near the start of a season
         # (Jan/May/Sep). MetaculusClient.ACX_2025_TOURNAMENT = 32564 and
