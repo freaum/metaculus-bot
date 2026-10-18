@@ -2,6 +2,10 @@ name: Test Bot
 
 on:
   workflow_dispatch:
+    inputs:
+      mode:
+        description: test_questions or diag
+        default: test_questions
 
 # Add concurrency group to prevent parallel runs
 concurrency:
@@ -37,7 +41,7 @@ jobs:
         run: poetry install --no-interaction --no-root
       - name: Run bot
         run: |
-          poetry run python main.py --mode test_questions
+          poetry run python main.py --mode ${{ inputs.mode || 'test_questions' }}
         # this reads the environment variables from the github repository.
         # Store under Settings --> Secrets and variables --> Actions
         env:

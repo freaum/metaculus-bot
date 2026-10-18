@@ -770,12 +770,22 @@ if __name__ == "__main__":
     parser.add_argument(
         "--mode",
         type=str,
-        choices=["tournament", "metaculus_cup", "test_questions"],
+        choices=["tournament", "metaculus_cup", "test_questions", "diag"],
         default="tournament",
         help="What to forecast on (default: tournament)",
     )
     args = parser.parse_args()
-    run_mode: Literal["tournament", "metaculus_cup", "test_questions"] = args.mode
+    run_mode: Literal["tournament", "metaculus_cup", "test_questions", "diag"] = args.mode
+    if run_mode == "diag":
+        import asyncio as _a
+        _c = MetaculusClient()
+        for _t in ["fall-futureeval-2026", 33121, "minibench", "metaculus-cup-fall-2026", "bot-testing-area"]:
+            try:
+                _qs = _a.run(_c.get_all_open_questions_from_tournament(_t))
+                print("DIAG", _t, len(_qs), [q.page_url for q in _qs[:3]])
+            except Exception as _e:
+                print("DIAG", _t, "ERR", repr(_e)[:200])
+        raise SystemExit(0)
 
     check_environment(strict=True)
     publish_to_metaculus = True
