@@ -846,7 +846,16 @@ if __name__ == "__main__":
             )
             return a + b
 
-        forecast_reports = asyncio.run(_both())  # single event loop (semaphore is class-level)
+        try:
+            _open = {
+                t: len(client.get_all_open_questions_from_tournament(t))
+                for t in (client.CURRENT_AI_COMPETITION_ID, client.CURRENT_MINIBENCH_ID)
+            }
+        except Exception as _e:
+            _open = f"err {_e!r}"[:100]
+        forecast_reports = asyncio.run(_both())
+        _ok = [r for r in forecast_reports if not isinstance(r, Exception)]
+        print(f"RUNLOG utc={datetime.now(timezone.utc).isoformat(timespec='minutes')} open={_open} reports_ok={len(_ok)} total={len(forecast_reports)}")  # single event loop (semaphore is class-level)
     elif run_mode == "metaculus_cup":
         # The Metaculus Cup may be uninitialized near the start of a season
         # (Jan/May/Sep). MetaculusClient.ACX_2025_TOURNAMENT = 32564 and
