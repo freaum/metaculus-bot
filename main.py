@@ -849,10 +849,13 @@ if __name__ == "__main__":
             except Exception as _e:
                 print("REPORT ERR", _pid, repr(_e)[:150])
         try:
-            _r = _rq.get("https://www.metaculus.com/api/posts/?tournaments=minibench&limit=1", headers=_h, timeout=60)
-            for _p in (_r.json().get("results") or [])[:1]:
-                _t = (_p.get("projects") or {}).get("tournament") or []
-                print("REPORT minibench_projects", [(x.get("id"), x.get("slug"), x.get("name")) for x in _t])
+            _qs = MetaculusClient().get_all_open_questions_from_tournament("minibench")
+            if _qs:
+                _aj = getattr(_qs[0], "api_json", {}) or {}
+                _pj = _aj.get("projects") or (_aj.get("post", {}) or {}).get("projects")
+                print("REPORT minibench_projects", str(_pj)[:500])
+            else:
+                print("REPORT minibench_projects no open questions")
         except Exception as _e:
             print("REPORT ERR minibench_probe", repr(_e)[:150])
         raise SystemExit(0)
