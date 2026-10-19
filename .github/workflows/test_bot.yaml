@@ -52,6 +52,10 @@ jobs:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           FORECAST_MODELS: ${{ vars.FORECAST_MODELS }}
+          PREDICTIONS_PER_REPORT: ${{ vars.PREDICTIONS_PER_REPORT }}
+          SEARCH_MODEL: ${{ vars.SEARCH_MODEL }}
+          SEARCH_MAX_USES: ${{ vars.SEARCH_MAX_USES }}
+          EXTREMIZE: ${{ vars.EXTREMIZE }}
           DEFAULT_MODEL: ${{ vars.DEFAULT_MODEL }}
           AUX_MODEL: ${{ vars.AUX_MODEL }}
           RESEARCH_MODEL: ${{ vars.RESEARCH_MODEL }}

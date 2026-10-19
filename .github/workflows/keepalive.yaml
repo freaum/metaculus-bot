@@ -1,0 +1,60 @@
+name: Keepalive forecaster
+
+# Self-perpetuating loop: runs the bot every ~20 min for ~5 h, then re-dispatches itself.
+# The schedule is only a re-animator in case the chain ever breaks (GitHub cron is irregular).
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 */5 * * *"
+
+concurrency:
+  group: keepalive
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  loop:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    env:
+      METACULUS_TOKEN: ${{ secrets.METACULUS_TOKEN }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      ASKNEWS_API_KEY: ${{ secrets.ASKNEWS_API_KEY }}
+      FORECAST_MODELS: ${{ vars.FORECAST_MODELS }}
+      DEFAULT_MODEL: ${{ vars.DEFAULT_MODEL }}
+      AUX_MODEL: ${{ vars.AUX_MODEL }}
+      RESEARCH_MODEL: ${{ vars.RESEARCH_MODEL }}
+      SEARCH_MODEL: ${{ vars.SEARCH_MODEL }}
+      SEARCH_MAX_USES: ${{ vars.SEARCH_MAX_USES }}
+      EXTREMIZE: ${{ vars.EXTREMIZE }}
+      PREDICTIONS_PER_REPORT: ${{ vars.PREDICTIONS_PER_REPORT }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install poetry
+        uses: snok/install-poetry@v1
+        with:
+          virtualenvs-create: true
+          virtualenvs-in-project: true
+          installer-parallel: true
+      - name: Install dependencies
+        run: poetry install --no-interaction --no-root
+      - name: Forecast loop (~5 h, every 20 min)
+        run: |
+          end=$((SECONDS + 18000))
+          while [ $SECONDS -lt $end ]; do
+            start=$SECONDS
+            poetry run python main.py || echo "run failed, continuing"
+            el=$((SECONDS - start))
+            if [ $el -lt 1200 ]; then sleep $((1200 - el)); fi
+          done
+      - name: Re-dispatch self
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run keepalive.yaml --repo "${{ github.repository }}"

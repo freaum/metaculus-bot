@@ -58,3 +58,5 @@ jobs:
           RESEARCH_MODEL: ${{ vars.RESEARCH_MODEL }}
           EXTREMIZE: ${{ vars.EXTREMIZE }}
           PREDICTIONS_PER_REPORT: ${{ vars.PREDICTIONS_PER_REPORT }}
+          SEARCH_MODEL: ${{ vars.SEARCH_MODEL }}
+          SEARCH_MAX_USES: ${{ vars.SEARCH_MAX_USES }}
