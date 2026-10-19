@@ -848,6 +848,13 @@ if __name__ == "__main__":
                     print("REPORT", _pid, "HTTP", _r.status_code)
             except Exception as _e:
                 print("REPORT ERR", _pid, repr(_e)[:150])
+        try:
+            _r = _rq.get("https://www.metaculus.com/api/posts/?tournaments=minibench&limit=1", headers=_h, timeout=60)
+            for _p in (_r.json().get("results") or [])[:1]:
+                _t = (_p.get("projects") or {}).get("tournament") or []
+                print("REPORT minibench_projects", [(x.get("id"), x.get("slug"), x.get("name")) for x in _t])
+        except Exception as _e:
+            print("REPORT ERR minibench_probe", repr(_e)[:150])
         raise SystemExit(0)
     if run_mode == "diag":
         import asyncio as _a
