@@ -834,7 +834,7 @@ if __name__ == "__main__":
     if run_mode == "report":
         import requests as _rq
         _h = {"Authorization": "Token " + os.environ["METACULUS_TOKEN"]}
-        for _pid in ["33121", "minibench"]:
+        for _pid in ["33121", "33132"]:
             try:
                 _r = _rq.get(f"https://www.metaculus.com/api/leaderboards/project/{_pid}/", headers=_h, timeout=60)
                 _data = _r.json() if _r.status_code == 200 else []
