@@ -834,19 +834,20 @@ if __name__ == "__main__":
     if run_mode == "report":
         import requests as _rq
         _h = {"Authorization": "Token " + os.environ["METACULUS_TOKEN"]}
-        for _u in [
-            "https://www.metaculus.com/api/projects/33121/",
-            "https://www.metaculus.com/api/projects/minibench/",
-            "https://www.metaculus.com/api/leaderboards/?project=33121",
-            "https://www.metaculus.com/api/leaderboards/project/33121/",
-            "https://www.metaculus.com/api/leaderboards/project/33121/?score_type=peer_tournament",
-            "https://www.metaculus.com/api/users/me/",
-        ]:
+        for _pid in ["33121", "minibench"]:
             try:
-                _r = _rq.get(_u, headers=_h, timeout=60)
-                print("REPORT", _r.status_code, _u, _r.text[:600].replace("\n", " "))
+                _r = _rq.get(f"https://www.metaculus.com/api/leaderboards/project/{_pid}/", headers=_h, timeout=60)
+                _data = _r.json() if _r.status_code == 200 else []
+                for _lb in _data:
+                    _es = _lb.get("entries") or []
+                    _me = [(i + 1, e) for i, e in enumerate(_es) if "freaum" in str(e.get("user", {}).get("username", ""))]
+                    print("REPORT", _pid, _lb.get("project_name"), "score_type", _lb.get("score_type"), "finalized", _lb.get("finalized"),
+                          "end", _lb.get("end_time"), "prize_pool", _lb.get("prize_pool"), "entries", len(_es),
+                          "me", str(_me)[:300])
+                if _r.status_code != 200:
+                    print("REPORT", _pid, "HTTP", _r.status_code)
             except Exception as _e:
-                print("REPORT ERR", _u, repr(_e)[:150])
+                print("REPORT ERR", _pid, repr(_e)[:150])
         raise SystemExit(0)
     if run_mode == "diag":
         import asyncio as _a
