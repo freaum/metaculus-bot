@@ -29,6 +29,8 @@ jobs:
       RESEARCH_MODEL: ${{ vars.RESEARCH_MODEL }}
       SEARCH_MODEL: ${{ vars.SEARCH_MODEL }}
       SEARCH_MAX_USES: ${{ vars.SEARCH_MAX_USES }}
+      MARKET_PULSE_ID: ${{ vars.MARKET_PULSE_ID }}
+      REFORECAST_HOURS: ${{ vars.REFORECAST_HOURS }}
       EXTREMIZE: ${{ vars.EXTREMIZE }}
       PREDICTIONS_PER_REPORT: ${{ vars.PREDICTIONS_PER_REPORT }}
     steps:

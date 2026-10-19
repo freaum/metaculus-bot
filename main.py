@@ -825,12 +825,12 @@ if __name__ == "__main__":
     parser.add_argument(
         "--mode",
         type=str,
-        choices=["tournament", "metaculus_cup", "test_questions", "diag", "report"],
+        choices=["tournament", "metaculus_cup", "test_questions", "diag", "report", "mp"],
         default="tournament",
         help="What to forecast on (default: tournament)",
     )
     args = parser.parse_args()
-    run_mode: Literal["tournament", "metaculus_cup", "test_questions", "diag", "report"] = args.mode
+    run_mode: Literal["tournament", "metaculus_cup", "test_questions", "diag", "report", "mp"] = args.mode
     if run_mode == "report":
         import requests as _rq
         _h = {"Authorization": "Token " + os.environ["METACULUS_TOKEN"]}
@@ -919,15 +919,36 @@ if __name__ == "__main__":
     # exceptions, since return_exceptions=True) which then flows into the
     # summary printers below.
     client = MetaculusClient()
-    if run_mode == "tournament":
+    if run_mode in ("tournament", "mp"):
         async def _both():
-            a = await template_bot.forecast_on_tournament(
-                client.CURRENT_AI_COMPETITION_ID, return_exceptions=True
-            )
-            b = await template_bot.forecast_on_tournament(
-                client.CURRENT_MINIBENCH_ID, return_exceptions=True
-            )
-            return a + b
+            a, b = [], []
+            if run_mode == "tournament":
+                a = await template_bot.forecast_on_tournament(
+                    client.CURRENT_AI_COMPETITION_ID, return_exceptions=True
+                )
+                b = await template_bot.forecast_on_tournament(
+                    client.CURRENT_MINIBENCH_ID, return_exceptions=True
+                )
+            c = []
+            mp_id = os.getenv("MARKET_PULSE_ID")  # e.g. market-pulse-26q4; empty = off
+            if mp_id:
+                # Market Pulse needs forecasts kept up to date: re-forecast every REFORECAST_HOURS
+                # (empty/0 = forecast each question only once).
+                hours = float(os.getenv("REFORECAST_HOURS") or 0)
+                now = datetime.now(timezone.utc)
+                due = []
+                for q in client.get_all_open_questions_from_tournament(mp_id):
+                    pf = q.previous_forecasts
+                    if not pf or (hours and (now - pf[-1].timestamp).total_seconds() >= hours * 3600):
+                        due.append(q)
+                print(f"MPLOG id={mp_id} due={len(due)} hours={hours}")
+                if due:
+                    template_bot.skip_previously_forecasted_questions = False
+                    try:
+                        c = await template_bot.forecast_questions(due, return_exceptions=True)
+                    finally:
+                        template_bot.skip_previously_forecasted_questions = True
+            return a + b + c
 
         try:
             _open = {

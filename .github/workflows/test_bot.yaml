@@ -6,6 +6,12 @@ on:
       mode:
         description: test_questions, diag or report
         default: test_questions
+      mp_id:
+        description: Market Pulse tournament id/slug for mode=mp
+        default: ''
+      reforecast_hours:
+        description: hours before re-forecasting
+        default: ''
 
 # Add concurrency group to prevent parallel runs
 concurrency:
@@ -55,6 +61,8 @@ jobs:
           PREDICTIONS_PER_REPORT: ${{ vars.PREDICTIONS_PER_REPORT }}
           SEARCH_MODEL: ${{ vars.SEARCH_MODEL }}
           SEARCH_MAX_USES: ${{ vars.SEARCH_MAX_USES }}
+          MARKET_PULSE_ID: ${{ inputs.mp_id || vars.MARKET_PULSE_ID }}
+          REFORECAST_HOURS: ${{ inputs.reforecast_hours || vars.REFORECAST_HOURS }}
           EXTREMIZE: ${{ vars.EXTREMIZE }}
           DEFAULT_MODEL: ${{ vars.DEFAULT_MODEL }}
           AUX_MODEL: ${{ vars.AUX_MODEL }}
