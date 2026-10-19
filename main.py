@@ -762,7 +762,7 @@ class MoneyBot(FallTemplateBot2026):
         logger.info(f"SEARCHLOG anthropic-search uses={uses} chars={len(text)} url={question.page_url}")
         return text
 
-    async def _run_forecast_on_binary(
+    async def _run_forecast_on_binary(self, question, research):
         prompt = clean_indents(
             f"""
             You are a calibrated superforecaster. Question:
