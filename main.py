@@ -825,12 +825,29 @@ if __name__ == "__main__":
     parser.add_argument(
         "--mode",
         type=str,
-        choices=["tournament", "metaculus_cup", "test_questions", "diag"],
+        choices=["tournament", "metaculus_cup", "test_questions", "diag", "report"],
         default="tournament",
         help="What to forecast on (default: tournament)",
     )
     args = parser.parse_args()
-    run_mode: Literal["tournament", "metaculus_cup", "test_questions", "diag"] = args.mode
+    run_mode: Literal["tournament", "metaculus_cup", "test_questions", "diag", "report"] = args.mode
+    if run_mode == "report":
+        import requests as _rq
+        _h = {"Authorization": "Token " + os.environ["METACULUS_TOKEN"]}
+        for _u in [
+            "https://www.metaculus.com/api/projects/33121/",
+            "https://www.metaculus.com/api/projects/minibench/",
+            "https://www.metaculus.com/api/leaderboards/?project=33121",
+            "https://www.metaculus.com/api/leaderboards/project/33121/",
+            "https://www.metaculus.com/api/leaderboards/project/33121/?score_type=peer_tournament",
+            "https://www.metaculus.com/api/users/me/",
+        ]:
+            try:
+                _r = _rq.get(_u, headers=_h, timeout=60)
+                print("REPORT", _r.status_code, _u, _r.text[:600].replace("\n", " "))
+            except Exception as _e:
+                print("REPORT ERR", _u, repr(_e)[:150])
+        raise SystemExit(0)
     if run_mode == "diag":
         import asyncio as _a
         _c = MetaculusClient()

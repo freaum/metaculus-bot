@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: test_questions or diag
+        description: test_questions, diag or report
         default: test_questions
 
 # Add concurrency group to prevent parallel runs
