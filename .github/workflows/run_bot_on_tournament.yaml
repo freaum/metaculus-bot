@@ -57,3 +57,4 @@ jobs:
           AUX_MODEL: ${{ vars.AUX_MODEL }}
           RESEARCH_MODEL: ${{ vars.RESEARCH_MODEL }}
           EXTREMIZE: ${{ vars.EXTREMIZE }}
+          PREDICTIONS_PER_REPORT: ${{ vars.PREDICTIONS_PER_REPORT }}
