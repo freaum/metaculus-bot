@@ -707,7 +707,62 @@ class MoneyBot(FallTemplateBot2026):
             return ens[MoneyBot._rr % len(ens)]
         return super().get_llm(purpose, guarantee_type)
 
-    async def _run_forecast_on_binary(self, question, research):
+    async def run_research(self, question):
+        """Research with fallbacks: configured researcher -> Anthropic web search -> no research.
+        A failing search provider (e.g. AskNews credits exhausted) must never stop forecasting."""
+        mode = os.getenv("RESEARCH_MODEL") or "anthropic-search"
+        if mode == "anthropic-search":
+            try:
+                return await self._anthropic_search(question)
+            except Exception as e:
+                logger.warning(f"anthropic-search failed ({e!r}); continuing without research")
+                return ""
+        try:
+            return await super().run_research(question)
+        except Exception as e:
+            logger.warning(f"researcher {mode} failed ({e!r}); falling back to anthropic-search")
+        try:
+            return await self._anthropic_search(question)
+        except Exception as e:
+            logger.warning(f"anthropic-search failed ({e!r}); continuing without research")
+            return ""
+
+    async def _anthropic_search(self, question) -> str:
+        import requests
+        model = (os.getenv("SEARCH_MODEL") or "claude-haiku-5-5").removeprefix("anthropic/")
+        max_uses = int(os.getenv("SEARCH_MAX_USES") or 2)
+        prompt = clean_indents(
+            f"""
+            You assist a superforecaster. Search the web for the most relevant and RECENT facts for this question
+            (current status, base rates, market prices/polls/expert forecasts, scheduled events). Today is {datetime.now().strftime("%Y-%m-%d")}.
+            Give a concise bulleted rundown with dates and sources. Do NOT give a probability.
+
+            Question: {question.question_text}
+            Resolution criteria: {question.resolution_criteria}
+            {question.fine_print}
+            """
+        )
+        body = {
+            "model": model,
+            "max_tokens": 1500,
+            "messages": [{"role": "user", "content": prompt}],
+            "tools": [{"type": "web_search_20250305", "name": "web_search", "max_uses": max_uses}],
+        }
+        headers = {"x-api-key": os.environ["ANTHROPIC_API_KEY"], "anthropic-version": "2023-06-01", "content-type": "application/json"}
+
+        def _call():
+            r = requests.post("https://api.anthropic.com/v1/messages", json=body, headers=headers, timeout=120)
+            r.raise_for_status()
+            return r.json()
+
+        async with self._concurrency_limiter:
+            data = await asyncio.to_thread(_call)
+        text = "\n".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text").strip()
+        uses = (data.get("usage", {}).get("server_tool_use") or {}).get("web_search_requests", 0)
+        logger.info(f"SEARCHLOG anthropic-search uses={uses} chars={len(text)} url={question.page_url}")
+        return text
+
+    async def _run_forecast_on_binary(
         prompt = clean_indents(
             f"""
             You are a calibrated superforecaster. Question:
