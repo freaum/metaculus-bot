@@ -938,10 +938,21 @@ if __name__ == "__main__":
                 now = datetime.now(timezone.utc)
                 due = []
                 for q in client.get_all_open_questions_from_tournament(mp_id):
+                    last = None
                     pf = q.previous_forecasts
-                    if not pf or (hours and (now - pf[-1].timestamp).total_seconds() >= hours * 3600):
+                    if pf:
+                        last = pf[-1].timestamp
+                    else:
+                        try:  # fallback: some question types do not parse the history
+                            mf = q.api_json["question"]["my_forecasts"]
+                            st = (mf.get("latest") or {}).get("start_time") or (mf.get("history") or [{}])[-1].get("start_time")
+                            if st:
+                                last = datetime.fromtimestamp(st, tz=timezone.utc)
+                        except Exception:
+                            last = None
+                    if last is None or (hours and (now - last).total_seconds() >= hours * 3600):
                         due.append(q)
-                print(f"MPLOG id={mp_id} due={len(due)} hours={hours}")
+                print(f"MPLOG id={mp_id} due={len(due)} hours={hours} due_ids={[q.id_of_question for q in due][:30]}")
                 if due:
                     template_bot.skip_previously_forecasted_questions = False
                     try:
