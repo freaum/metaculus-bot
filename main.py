@@ -46,6 +46,8 @@ dotenv.load_dotenv()
 from aggregation import aggregate_binary
 
 EXTREMIZE = float(os.getenv("EXTREMIZE") or 1.0)
+SPEND_STOP = float(os.getenv("SPEND_STOP") or 90)  # USD/month: halt everything
+SPEND_NO_REFORECAST = float(os.getenv("SPEND_NO_REFORECAST") or 85)  # USD/month: stop re-forecasts
 logger = logging.getLogger(__name__)
 
 
@@ -693,6 +695,7 @@ class MoneyBot(FallTemplateBot2026):
     names, e.g. openrouter/anthropic/claude-sonnet-4.5) so they can be changed without code."""
 
     _rr = 0
+    _search_uses = 0
 
     def _ensemble(self) -> list[GeneralLlm]:
         if not hasattr(self, "_ens"):
@@ -759,6 +762,7 @@ class MoneyBot(FallTemplateBot2026):
             data = await asyncio.to_thread(_call)
         text = "\n".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text").strip()
         uses = (data.get("usage", {}).get("server_tool_use") or {}).get("web_search_requests", 0)
+        MoneyBot._search_uses += int(uses or 0)
         logger.info(f"SEARCHLOG anthropic-search uses={uses} chars={len(text)} url={question.page_url}")
         return text
 
@@ -920,6 +924,14 @@ if __name__ == "__main__":
     # summary printers below.
     client = MetaculusClient()
     if run_mode in ("tournament", "mp"):
+        _spend = float(os.getenv("SPEND_TOTAL") or 0)
+        if _spend >= SPEND_STOP:
+            print(f"SPENDLOG halted: month total {_spend:.2f} >= {SPEND_STOP}")
+            raise SystemExit(0)
+        if _spend >= SPEND_NO_REFORECAST:
+            print(f"SPENDLOG re-forecasts off: month total {_spend:.2f} >= {SPEND_NO_REFORECAST}")
+            os.environ["REFORECAST_HOURS"] = "0"
+
         async def _both():
             a, b = [], []
             if run_mode == "tournament":
@@ -971,6 +983,8 @@ if __name__ == "__main__":
         forecast_reports = asyncio.run(_both())
         _ok = [r for r in forecast_reports if not isinstance(r, Exception)]
         print(f"RUNLOG utc={datetime.now(timezone.utc).isoformat(timespec='minutes')} open={_open} reports_ok={len(_ok)} total={len(forecast_reports)}")  # single event loop (semaphore is class-level)
+        _cost = sum((getattr(r, "price_estimate", None) or 0) for r in _ok) + MoneyBot._search_uses * 0.01
+        print(f"COSTLOG usd={_cost:.4f} reports={len(_ok)} searches={MoneyBot._search_uses}")
     elif run_mode == "metaculus_cup":
         # The Metaculus Cup may be uninitialized near the start of a season
         # (Jan/May/Sep). MetaculusClient.ACX_2025_TOURNAMENT = 32564 and

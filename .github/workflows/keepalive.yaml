@@ -12,7 +12,7 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: read
+  contents: write   # push spend.json to the 'state' branch
   actions: write
 
 jobs:
@@ -46,15 +46,13 @@ jobs:
           installer-parallel: true
       - name: Install dependencies
         run: poetry install --no-interaction --no-root
-      - name: Forecast loop (~5 h, every 20 min)
-        run: |
-          end=$((SECONDS + 18000))
-          while [ $SECONDS -lt $end ]; do
-            start=$SECONDS
-            poetry run python main.py || echo "run failed, continuing"
-            el=$((SECONDS - start))
-            if [ $el -lt 1200 ]; then sleep $((1200 - el)); fi
-          done
+      - name: Checkout state branch (spend tracking)
+        uses: actions/checkout@v4
+        with:
+          ref: state
+          path: state
+      - name: Forecast loop (~5 h, every 20 min, with monthly spend brake)
+        run: bash scripts/keepalive_loop.sh
       - name: Re-dispatch self
         if: always()
         env:
