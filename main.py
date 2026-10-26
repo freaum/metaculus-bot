@@ -829,12 +829,16 @@ if __name__ == "__main__":
     parser.add_argument(
         "--mode",
         type=str,
-        choices=["tournament", "metaculus_cup", "test_questions", "diag", "report", "mp"],
+        choices=["tournament", "metaculus_cup", "test_questions", "diag", "report", "mp", "review"],
         default="tournament",
         help="What to forecast on (default: tournament)",
     )
     args = parser.parse_args()
-    run_mode: Literal["tournament", "metaculus_cup", "test_questions", "diag", "report", "mp"] = args.mode
+    run_mode: Literal["tournament", "metaculus_cup", "test_questions", "diag", "report", "mp", "review"] = args.mode
+    if run_mode == "review":  # read-only: scores of resolved questions, no LLM, no publishing
+        import review_mode
+        review_mode.run()
+        raise SystemExit(0)
     if run_mode == "report":
         import requests as _rq
         _h = {"Authorization": "Token " + os.environ["METACULUS_TOKEN"]}
