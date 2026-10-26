@@ -844,7 +844,9 @@ if __name__ == "__main__":
                 _data = _r.json() if _r.status_code == 200 else []
                 for _lb in _data:
                     _es = _lb.get("entries") or []
-                    _me = [(i + 1, e) for i, e in enumerate(_es) if "freaum" in str(e.get("user", {}).get("username", ""))]
+                    _me = [(i + 1, e) for i, e in enumerate(_es) if "freaum" in str(e).lower()]
+                    if _es:
+                        print("REPORT", _pid, "top1", str(_es[0])[:300])
                     print("REPORT", _pid, _lb.get("project_name"), "score_type", _lb.get("score_type"), "finalized", _lb.get("finalized"),
                           "end", _lb.get("end_time"), "prize_pool", _lb.get("prize_pool"), "entries", len(_es),
                           "me", str(_me)[:300])
