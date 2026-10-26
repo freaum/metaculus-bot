@@ -33,6 +33,10 @@ jobs:
       REFORECAST_HOURS: ${{ vars.REFORECAST_HOURS }}
       EXTREMIZE: ${{ vars.EXTREMIZE }}
       PREDICTIONS_PER_REPORT: ${{ vars.PREDICTIONS_PER_REPORT }}
+      FORECAST_MODELS_MAIN: ${{ vars.FORECAST_MODELS_MAIN }}
+      PREDICTIONS_PER_REPORT_MAIN: ${{ vars.PREDICTIONS_PER_REPORT_MAIN }}
+      SEARCH_MODEL_MAIN: ${{ vars.SEARCH_MODEL_MAIN }}
+      SEARCH_MAX_USES_MAIN: ${{ vars.SEARCH_MAX_USES_MAIN }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

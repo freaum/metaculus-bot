@@ -1,5 +1,6 @@
 import argparse
 import asyncio
+import contextvars
 import logging
 import os
 from datetime import datetime, timezone
@@ -689,25 +690,74 @@ class FallTemplateBot2026(ForecastBot):
         )
 
 
+# USD per million tokens (input, output) for the raw web-search call, which litellm does not track.
+SEARCH_PRICES = {"haiku-5-5": (0.10, 0.50), "sonnet-5-5": (2.0, 10.0), "opus-5-5": (4.0, 20.0)}
+_SLOT = contextvars.ContextVar("prediction_slot", default=None)
+
+
+def _tier_env(name: str, tier: str) -> str | None:
+    """Tier 'main' (FutureEval Fall 33121, the high-value questions) reads NAME_MAIN first."""
+    if tier == "main":
+        v = os.getenv(name + "_MAIN")
+        if v:
+            return v
+    return os.getenv(name)
+
+
 class MoneyBot(FallTemplateBot2026):
     """Improved bot: multi-model ensemble, log-odds aggregation + moderate extremization,
     outside-view binary prompt. Models come from env FORECAST_MODELS (comma list, LiteLLM
-    names, e.g. openrouter/anthropic/claude-sonnet-4.5) so they can be changed without code."""
+    names) so they can be changed without code. Two tiers: 'main' (Fall tournament, env *_MAIN
+    overrides) and 'base' (MiniBench, Market Pulse)."""
 
     _rr = 0
     _search_uses = 0
+    _search_usd = 0.0
+    _tier = "base"
+
+    def set_tier(self, tier: str) -> None:
+        self._tier = tier
+        self.predictions_per_research_report = int(_tier_env("PREDICTIONS_PER_REPORT", tier) or 6)
+        print(f"TIERLOG tier={tier} runs={self._run_plan()} search={self._search_cfg()}")
 
     def _ensemble(self) -> list[GeneralLlm]:
-        if not hasattr(self, "_ens"):
-            names = [m.strip() for m in os.getenv("FORECAST_MODELS", "").split(",") if m.strip()]
-            self._ens = [GeneralLlm(model=n, temperature=0.3, timeout=240, allowed_tries=2) for n in names]
-        return self._ens
+        cache = self.__dict__.setdefault("_ens_by_tier", {})
+        if self._tier not in cache:
+            names = [m.strip() for m in (_tier_env("FORECAST_MODELS", self._tier) or "").split(",") if m.strip()]
+            cache[self._tier] = [GeneralLlm(model=n, temperature=0.3, timeout=300, allowed_tries=2) for n in names]
+        return cache[self._tier]
+
+    def _run_plan(self) -> str:
+        """Which model runs each prediction slot of a question, e.g. 4x claude-opus-5-5 + 2x claude-sonnet-5-5."""
+        ens = self._ensemble()
+        if not ens:
+            return "default model"
+        from collections import Counter
+        c = Counter(ens[i % len(ens)].model.split("/")[-1] for i in range(self.predictions_per_research_report))
+        return " + ".join(f"{n}x {m}" for m, n in c.items())
+
+    def _search_cfg(self) -> tuple[str, int]:
+        model = (_tier_env("SEARCH_MODEL", self._tier) or "claude-haiku-5-5").removeprefix("anthropic/")
+        return model, int(_tier_env("SEARCH_MAX_USES", self._tier) or 2)
+
+    async def _make_prediction(self, question, research):
+        # Deterministic model per prediction slot (slot i -> ensemble[i % len]); each prediction runs in
+        # its own asyncio task, so the context variable is local to it.
+        counts = self.__dict__.setdefault("_slot_counts", {})
+        key = (question.page_url, getattr(question, "id_of_question", None), getattr(question, "conditional_type", None))
+        slot = counts.get(key, 0)
+        counts[key] = slot + 1
+        _SLOT.set(slot)
+        return await super()._make_prediction(question, research)
 
     def get_llm(self, purpose="default", guarantee_type=None):
         if purpose == "default" and guarantee_type == "llm" and self._ensemble():
             ens = self._ensemble()
-            MoneyBot._rr += 1
-            return ens[MoneyBot._rr % len(ens)]
+            slot = _SLOT.get()
+            if slot is None:
+                MoneyBot._rr += 1
+                slot = MoneyBot._rr
+            return ens[slot % len(ens)]
         return super().get_llm(purpose, guarantee_type)
 
     async def run_research(self, question):
@@ -732,38 +782,56 @@ class MoneyBot(FallTemplateBot2026):
 
     async def _anthropic_search(self, question) -> str:
         import requests
-        model = (os.getenv("SEARCH_MODEL") or "claude-haiku-5-5").removeprefix("anthropic/")
-        max_uses = int(os.getenv("SEARCH_MAX_USES") or 2)
+        model, max_uses = self._search_cfg()
         prompt = clean_indents(
             f"""
             You assist a superforecaster. Search the web for the most relevant and RECENT facts for this question
-            (current status, base rates, market prices/polls/expert forecasts, scheduled events). Today is {datetime.now().strftime("%Y-%m-%d")}.
-            Give a concise bulleted rundown with dates and sources. Do NOT give a probability.
+            (current status and latest values, base rates / historical frequencies, market prices, polls, expert forecasts,
+            scheduled events before the resolution date). Today is {datetime.now().strftime("%Y-%m-%d")}.
+            Write a thorough bulleted rundown (about 300-600 words) with dates and sources, ending with the 3 facts that
+            matter most for the resolution. Do NOT give a probability.
 
             Question: {question.question_text}
             Resolution criteria: {question.resolution_criteria}
             {question.fine_print}
             """
         )
-        body = {
-            "model": model,
-            "max_tokens": 1500,
-            "messages": [{"role": "user", "content": prompt}],
-            "tools": [{"type": "web_search_20250305", "name": "web_search", "max_uses": max_uses}],
-        }
+        # Newer models get the dynamic-filtering search tool; Haiku keeps the basic one.
+        tool_type = "web_search_20260209" if ("sonnet" in model or "opus" in model) else "web_search_20250305"
+        messages = [{"role": "user", "content": prompt}]
         headers = {"x-api-key": os.environ["ANTHROPIC_API_KEY"], "anthropic-version": "2023-06-01", "content-type": "application/json"}
 
-        def _call():
-            r = requests.post("https://api.anthropic.com/v1/messages", json=body, headers=headers, timeout=120)
+        def _call(msgs):
+            body = {
+                "model": model,
+                "max_tokens": 8000,  # thinking shares this budget; 1500 left some answers almost empty
+                "messages": msgs,
+                "tools": [{"type": tool_type, "name": "web_search", "max_uses": max_uses}],
+            }
+            r = requests.post("https://api.anthropic.com/v1/messages", json=body, headers=headers, timeout=300)
             r.raise_for_status()
             return r.json()
 
+        uses, usd, data = 0, 0.0, {}
+        pin, pout = next((v for k, v in SEARCH_PRICES.items() if k in model), (4.0, 20.0))
         async with self._concurrency_limiter:
-            data = await asyncio.to_thread(_call)
-        text = "\n".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text").strip()
-        uses = (data.get("usage", {}).get("server_tool_use") or {}).get("web_search_requests", 0)
-        MoneyBot._search_uses += int(uses or 0)
-        logger.info(f"SEARCHLOG anthropic-search uses={uses} chars={len(text)} url={question.page_url}")
+            for _ in range(3):  # server tools may stop with pause_turn: continue the same turn
+                data = await asyncio.to_thread(_call, messages)
+                u = data.get("usage", {}) or {}
+                uses += int((u.get("server_tool_use") or {}).get("web_search_requests", 0) or 0)
+                usd += ((u.get("input_tokens") or 0) + 1.25 * (u.get("cache_creation_input_tokens") or 0)
+                        + 0.1 * (u.get("cache_read_input_tokens") or 0)) * pin / 1e6 + (u.get("output_tokens") or 0) * pout / 1e6
+                if data.get("stop_reason") != "pause_turn":
+                    break
+                messages = messages + [{"role": "assistant", "content": data.get("content", [])}]
+        blocks = data.get("content", []) or []
+        last_tool = max([i for i, b in enumerate(blocks) if b.get("type", "").endswith("tool_result")] or [-1])
+        text = "\n".join(b.get("text", "") for b in blocks[last_tool + 1:] if b.get("type") == "text").strip()
+        if len(text) < 200:
+            text = "\n".join(b.get("text", "") for b in blocks if b.get("type") == "text").strip()
+        MoneyBot._search_uses += uses
+        MoneyBot._search_usd += usd
+        logger.info(f"SEARCHLOG anthropic-search model={model} uses={uses} chars={len(text)} tok_usd={usd:.4f} stop={data.get('stop_reason')} url={question.page_url}")
         return text
 
     async def _run_forecast_on_binary(self, question, research):
@@ -804,12 +872,15 @@ class MoneyBot(FallTemplateBot2026):
         text = super()._create_unified_explanation(
             question, research_prediction_collections, aggregated_prediction, final_cost, time_spent_in_minutes
         )
-        models = ", ".join(m.model for m in self._ensemble()) or "default model"
+        smodel, suses = self._search_cfg()
         note = (
             "\n\n---\n"
-            f"Method note: each forecast is an average over several independent LLM runs (models rotated among: {models}). "
-            f"Binary answers are combined as a trimmed mean of log-odds with extremization factor {EXTREMIZE}; "
-            "other question types use the median/standard aggregation. The published number is the aggregate, not any single run."
+            f"Method note: research by {smodel} with up to {suses} web searches; then {self.predictions_per_research_report} "
+            f"independent forecasting runs ({self._run_plan()}). "
+            f"Binary answers are combined as a mean of log-odds (dropping the min and max when there are 5+ runs) "
+            f"with extremization factor {EXTREMIZE}; numeric/date answers use the median CDF and multiple choice the "
+            "standard forecasting-tools aggregation. The published number is the aggregate, not any single run. "
+            "No human reviewed or edited this forecast."
         )
         return text + note
 
@@ -941,12 +1012,15 @@ if __name__ == "__main__":
         async def _both():
             a, b = [], []
             if run_mode == "tournament":
+                template_bot.set_tier("main")  # Fall tournament: highest prize per question
                 a = await template_bot.forecast_on_tournament(
                     client.CURRENT_AI_COMPETITION_ID, return_exceptions=True
                 )
+                template_bot.set_tier("base")
                 b = await template_bot.forecast_on_tournament(
                     client.CURRENT_MINIBENCH_ID, return_exceptions=True
                 )
+            template_bot.set_tier("base")
             c = []
             mp_id = os.getenv("MARKET_PULSE_ID")  # e.g. market-pulse-26q4; empty = off
             if mp_id:
@@ -989,8 +1063,9 @@ if __name__ == "__main__":
         forecast_reports = asyncio.run(_both())
         _ok = [r for r in forecast_reports if not isinstance(r, Exception)]
         print(f"RUNLOG utc={datetime.now(timezone.utc).isoformat(timespec='minutes')} open={_open} reports_ok={len(_ok)} total={len(forecast_reports)}")  # single event loop (semaphore is class-level)
-        _cost = sum((getattr(r, "price_estimate", None) or 0) for r in _ok) + MoneyBot._search_uses * 0.01
-        print(f"COSTLOG usd={_cost:.4f} reports={len(_ok)} searches={MoneyBot._search_uses}")
+        # litellm tracks the forecasting calls; the raw web-search call is added here (search fees + its tokens)
+        _cost = sum((getattr(r, "price_estimate", None) or 0) for r in _ok) + MoneyBot._search_uses * 0.01 + MoneyBot._search_usd
+        print(f"COSTLOG usd={_cost:.4f} reports={len(_ok)} searches={MoneyBot._search_uses} search_tok_usd={MoneyBot._search_usd:.4f}")
     elif run_mode == "metaculus_cup":
         # The Metaculus Cup may be uninitialized near the start of a season
         # (Jan/May/Sep). MetaculusClient.ACX_2025_TOURNAMENT = 32564 and
@@ -1007,11 +1082,22 @@ if __name__ == "__main__":
         # the recommended target for smoke-testing your bot.
         # https://www.metaculus.com/tournament/bot-testing-area/
         template_bot.skip_previously_forecasted_questions = False
-        forecast_reports = asyncio.run(
-            template_bot.forecast_on_tournament(
-                "bot-testing-area", return_exceptions=True
-            )
-        )
+        template_bot.set_tier(os.getenv("TEST_TIER") or "base")
+        _tq = client.get_all_open_questions_from_tournament("bot-testing-area")
+        _lim = int(os.getenv("TEST_LIMIT") or 0)
+        if _lim:  # one question of each type first, to keep test cost low
+            _by = {}
+            for _q in _tq:
+                _by.setdefault(type(_q).__name__, []).append(_q)
+            _order = [q for i in range(max(len(v) for v in _by.values())) for v in _by.values() if i < len(v)]
+            _tq = _order[:_lim]
+        print("TESTLOG questions", [(q.page_url, type(q).__name__) for q in _tq])
+        forecast_reports = asyncio.run(template_bot.forecast_questions(_tq, return_exceptions=True))
+        _ok = [r for r in forecast_reports if not isinstance(r, Exception)]
+        for _r in _ok:
+            print(f"TESTLOG cost {getattr(_r, 'price_estimate', 0) or 0:.4f} {_r.question.page_url} {type(_r.question).__name__}")
+        _cost = sum((getattr(r, "price_estimate", None) or 0) for r in _ok) + MoneyBot._search_uses * 0.01 + MoneyBot._search_usd
+        print(f"COSTLOG usd={_cost:.4f} reports={len(_ok)} total={len(forecast_reports)} searches={MoneyBot._search_uses} search_tok_usd={MoneyBot._search_usd:.4f}")
 
     template_bot.log_report_summary(forecast_reports)
     print_run_summary_banner(

@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: test_questions, diag or report
+        description: test_questions, diag, report, review or mp
         default: test_questions
       mp_id:
         description: Market Pulse tournament id/slug for mode=mp
@@ -12,6 +12,12 @@ on:
       reforecast_hours:
         description: hours before re-forecasting
         default: ''
+      tier:
+        description: test_questions tier (base or main)
+        default: 'base'
+      limit:
+        description: test_questions max questions (0 = all)
+        default: '0'
 
 # Add concurrency group to prevent parallel runs
 concurrency:
@@ -59,6 +65,12 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           FORECAST_MODELS: ${{ vars.FORECAST_MODELS }}
           PREDICTIONS_PER_REPORT: ${{ vars.PREDICTIONS_PER_REPORT }}
+          FORECAST_MODELS_MAIN: ${{ vars.FORECAST_MODELS_MAIN }}
+          PREDICTIONS_PER_REPORT_MAIN: ${{ vars.PREDICTIONS_PER_REPORT_MAIN }}
+          SEARCH_MODEL_MAIN: ${{ vars.SEARCH_MODEL_MAIN }}
+          SEARCH_MAX_USES_MAIN: ${{ vars.SEARCH_MAX_USES_MAIN }}
+          TEST_TIER: ${{ inputs.tier }}
+          TEST_LIMIT: ${{ inputs.limit }}
           SEARCH_MODEL: ${{ vars.SEARCH_MODEL }}
           SEARCH_MAX_USES: ${{ vars.SEARCH_MAX_USES }}
           MARKET_PULSE_ID: ${{ inputs.mp_id || vars.MARKET_PULSE_ID }}
