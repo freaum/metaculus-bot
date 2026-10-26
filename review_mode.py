@@ -55,7 +55,7 @@ def leaderboard(pid):
 
 
 def contributions(pid, uid, label):
-    r = _get(f"{BASE}/medals/contributions/", project_id=pid, user_id=uid)
+    r = _get(f"{BASE}/medals/contributions/", project_id=pid, user_id=uid, for_user=uid)
     if r.status_code != 200:
         print("REVIEW", pid, "contrib", label, "HTTP", r.status_code, r.text[:150])
         return {}
@@ -97,18 +97,39 @@ def resolved_mine(tid):
               "n_hist", len(mf.get("history") or []), "|", (q.question_text or "")[:90])
 
 
+def coverage(tid):
+    """All questions of a tournament (open/closed/resolved): did this bot forecast each one?"""
+    from forecasting_tools import ApiFilter, MetaculusClient
+    import asyncio
+
+    f = ApiFilter(allowed_tournaments=[tid], allowed_statuses=["open", "closed", "resolved"],
+                  group_question_mode="unpack_subquestions")
+    try:
+        qs = asyncio.run(MetaculusClient().get_questions_matching_filter(f, num_questions=400, error_if_question_target_missed=False))
+    except Exception as e:
+        print("REVIEW", tid, "coverage ERR", repr(e)[:200])
+        return
+    n_mine = 0
+    for q in sorted(qs, key=lambda x: str(x.open_time)):
+        qj = (q.api_json or {}).get("question") or {}
+        mf = qj.get("my_forecasts") or {}
+        hist = mf.get("history") or []
+        first = hist[0].get("start_time") if hist else None
+        n_mine += bool(hist)
+        print("REVIEW", tid, "COV", q.id_of_post, type(q).__name__[:8], q.state, "res", q.resolution_string,
+              "open", str(q.open_time)[:16], "close", str(q.close_time)[:16], "mine", bool(hist), "first", first,
+              "nfc", q.num_forecasters, "|", (q.question_text or "")[:70])
+    print("REVIEW", tid, "coverage", n_mine, "of", len(qs))
+
+
 def run():
+    for tid in [33121, "minibench"]:
+        coverage(tid)
     for pid in ["33121", "33132"]:
         rows = leaderboard(pid)
         me = [r for r in rows if "freaum" in str(r[1]).lower()]
         tops = [r for r in rows if r[2] and "freaum" not in str(r[1]).lower()][:3]
         if me:
-            mine = contributions(pid, me[0][2], "me")
-            for t in tops:
-                theirs = contributions(pid, t[2], t[1])
-                common = [k for k in mine if k in theirs]
-                diff = [(k, mine[k], theirs[k]) for k in common]
-                print("REVIEW", pid, "vs", t[1], "common", len(common), "sum_me", round(sum(m or 0 for _, m, _ in diff), 2),
-                      "sum_them", round(sum(x or 0 for _, _, x in diff), 2), "per_q", _short(diff, 600))
+            contributions(pid, me[0][2], "me")  # other users' contributions are private (403)
     for tid in [33121, 33132, "minibench"]:
         resolved_mine(tid)
