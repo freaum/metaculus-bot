@@ -1089,7 +1089,7 @@ if __name__ == "__main__":
             _by = {}
             for _q in _tq:
                 _by.setdefault(type(_q).__name__, []).append(_q)
-            _order = [q for i in range(max(len(v) for v in _by.values())) for v in _by.values() if i < len(v)]
+            _order = [v[i] for i in range(max(len(v) for v in _by.values())) for v in _by.values() if i < len(v)]
             _tq = _order[:_lim]
         print("TESTLOG questions", [(q.page_url, type(q).__name__) for q in _tq])
         forecast_reports = asyncio.run(template_bot.forecast_questions(_tq, return_exceptions=True))
