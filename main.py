@@ -949,6 +949,21 @@ if __name__ == "__main__":
                 print("DIAG", _t, len(_qs), [(q.page_url, type(q).__name__, str(getattr(q, "close_time", ""))[:16], getattr(q, "group_question_option", None)) for q in _qs[:6]])
             except Exception as _e:
                 print("DIAG", _t, "ERR", repr(_e)[:200])
+        try:  # which project does the 'minibench' slug point to, and when did its last questions open/close
+            import requests as _rq
+            _h = {"Authorization": "Token " + os.environ["METACULUS_TOKEN"]}
+            _r = _rq.get("https://www.metaculus.com/api/projects/tournaments/minibench/", headers=_h, timeout=60)
+            _pj = _r.json() if _r.status_code == 200 else {}
+            print("DIAG minibench_project HTTP", _r.status_code, {k: _pj.get(k) for k in ("id", "slug", "name", "start_date", "close_date", "forecasting_end_date", "questions_count")})
+            _r = _rq.get("https://www.metaculus.com/api/posts/", headers=_h, timeout=60,
+                         params={"tournaments": "minibench", "order_by": "-open_time", "limit": 5})
+            for _p in (_r.json().get("results", []) if _r.status_code == 200 else []):
+                _q = _p.get("question") or {}
+                print("DIAG minibench_post", _p.get("id"), _p.get("status"), str(_q.get("open_time"))[:16], str(_q.get("scheduled_close_time"))[:16], [x.get("id") for x in (_p.get("projects") or {}).get("tournament", [])])
+            if _r.status_code != 200:
+                print("DIAG minibench_posts HTTP", _r.status_code)
+        except Exception as _e:
+            print("DIAG ERR minibench_probe", repr(_e)[:200])
         raise SystemExit(0)
 
     check_environment(strict=True)
