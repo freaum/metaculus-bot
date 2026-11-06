@@ -925,6 +925,12 @@ if __name__ == "__main__":
                     print("REPORT", _pid, _lb.get("project_name"), "score_type", _lb.get("score_type"), "finalized", _lb.get("finalized"),
                           "end", _lb.get("end_time"), "prize_pool", _lb.get("prize_pool"), "entries", len(_es),
                           "me", str(_me)[:300])
+                    for _rk, _e in _me:
+                        print("REPORT", _pid, "ME_PRIZE pos", _rk, "rank", _e.get("rank"), "prize", _e.get("prize"),
+                              "percent_prize", _e.get("percent_prize"), "medal", _e.get("medal"), "excluded", _e.get("excluded"))
+                    _paid = [e for e in _es if (e.get("prize") or 0) > 0]
+                    print("REPORT", _pid, "PRIZED_ENTRIES", len(_paid), "last_prized_rank",
+                          (_paid[-1].get("rank") if _paid else None), "min_prize", (_paid[-1].get("prize") if _paid else None))
                 if _r.status_code != 200:
                     print("REPORT", _pid, "HTTP", _r.status_code)
             except Exception as _e:
