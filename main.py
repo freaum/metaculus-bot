@@ -300,11 +300,8 @@ class FallTemplateBot2026(ForecastBot):
             {self._get_conditional_disclaimer_if_necessary(question)}
             You write your rationale remembering that (1) good forecasters put extra weight on the status quo outcome since the world changes slowly most of the time, and (2) good forecasters leave some moderate probability on most options to account for unexpected outcomes.
 
-            The last thing you write is your final probabilities for the N options in this order {question.options} as:
-            Option_A: Probability_A
-            Option_B: Probability_B
-            ...
-            Option_N: Probability_N
+            The last thing you write is your final probabilities for the N options in this order {question.options}, one line per option, using each option's exact name (never letters or numbers instead of the names):
+            <exact option name>: <probability>%
             """
         )
         return await self._multiple_choice_prompt_to_forecast(question, prompt)
@@ -887,7 +884,50 @@ class MoneyBot(FallTemplateBot2026):
     async def _aggregate_predictions(self, predictions, question):
         if isinstance(question, BinaryQuestion):
             return aggregate_binary([float(p) for p in predictions], EXTREMIZE)
+        if isinstance(question, MultipleChoiceQuestion):
+            predictions = align_mc_predictions(predictions, list(question.options))
         return await super()._aggregate_predictions(predictions, question)
+
+
+def _mc_key(name):
+    s = str(name).strip().strip("*\"'`").strip()
+    low = s.lower()
+    for pre in ("option_", "option ", "option-", "option:"):
+        if low.startswith(pre):
+            s = s[len(pre):].strip()
+            break
+    return s.lower()
+
+
+def align_mc_predictions(predictions, options):
+    """Rename each run's options to the question's exact option names.
+    A run that used letters (A, B, ...) is mapped by position; a run that can't be
+    mapped is dropped (the rest are still aggregated). Raises only if none survive."""
+    by_key = {_mc_key(o): o for o in options}
+    letters = {chr(ord("a") + i): o for i, o in enumerate(options)} if len(options) <= 26 else {}
+    out = []
+    for p in predictions:
+        names = [po.option_name for po in p.predicted_options]
+        keys = [_mc_key(n) for n in names]
+        if all(k in by_key for k in keys):
+            mapping = [by_key[k] for k in keys]
+        elif letters and all(k in letters for k in keys):
+            mapping = [letters[k] for k in keys]
+        else:
+            logger.warning(f"MCALIGN dropped run with options {names}")
+            continue
+        if sorted(mapping) != sorted(options):
+            logger.warning(f"MCALIGN dropped run with options {names}")
+            continue
+        if mapping != names:
+            logger.warning(f"MCALIGN renamed run options {names} -> {mapping}")
+        out.append(PredictedOptionList(predicted_options=[
+            type(po)(option_name=m, probability=po.probability)
+            for po, m in zip(p.predicted_options, mapping)
+        ]))
+    if not out:
+        raise ValueError(f"MCALIGN no run matched the options {options}")
+    return out
 
 
 if __name__ == "__main__":
